@@ -2,5 +2,6 @@
 
 members = [
     "tools",
-    "macros"
+    "macros",
+    "nonsecure-rt",
 ]

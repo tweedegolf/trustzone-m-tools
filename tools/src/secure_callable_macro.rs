@@ -1,8 +1,8 @@
 use proc_macro2::TokenStream;
 
 pub fn secure_callable(attr: TokenStream, item: TokenStream) -> TokenStream {
-    println!("attr: \"{}\"", attr.to_string());
-    println!("item: \"{}\"", item.to_string());
+    println!("attr: \"{:#?}\"", attr);
+    println!("item: \"{:#?}\"", item);
     item
 }
 
@@ -18,7 +18,9 @@ mod tests {
 #[secure_callable]
         "#;
         let item = r#"
-extern "C" fn test() {}
+extern "C" fn secure_multiply(l: u8, r: u8) -> u8 {
+    l * r
+}
         "#;
 
 
