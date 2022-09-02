@@ -27,7 +27,19 @@ SECTIONS
 {
   PROVIDE(_stack_start = ORIGIN(NS_RAM) + LENGTH(NS_RAM));
 
-  PROVIDE(_stext = ORIGIN(NS_FLASH));
+  PROVIDE(_sctors = ORIGIN(NS_FLASH));
+
+  /* ### .text */
+  .ctor _sctors :
+  {
+    KEEP(*(.ctor.init));
+    KEEP(*(.ctor));
+    _ectors = .;
+
+    . = ALIGN(4); /* Pad .text to the alignment to workaround overlapping load section bug in old lld */
+  } > NS_FLASH
+
+  _stext = .;
 
   /* ### .text */
   .text _stext :
@@ -46,6 +58,7 @@ SECTIONS
   {
     . = ALIGN(4);
     __srodata = .;
+
     *(.rodata .rodata.*);
 
     /* 4-byte align the end (VMA) of this section.
@@ -54,6 +67,14 @@ SECTIONS
     . = ALIGN(4);
     __erodata = .;
   } > NS_FLASH
+
+  .ns_vectors : ALIGN(4)
+  {
+    . = ALIGN(4);
+    KEEP(*(.ns_vector.len));
+    KEEP(*(.ns_vector.ptrs));
+    . = ALIGN(4);
+  } > NS_RAM
 
   /* ## Sections in RAM */
   /* ### .data */
