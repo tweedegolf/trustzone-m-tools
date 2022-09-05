@@ -1,4 +1,4 @@
-use std::{path::PathBuf, env, fs::File, io::Write};
+use std::{env, fs::File, io::Write, path::PathBuf};
 
 fn main() {
     // Put the linker script somewhere the linker can find it
