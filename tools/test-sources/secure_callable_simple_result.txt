@@ -1,0 +1,11 @@
+#[link_section = ".vectors"]
+#[no_mangle]
+#[used]
+static WRITE_THING_VECTOR: (extern "C" fn(u32), u32) = (write_thing, 4157143984u32);
+#[link_section = ".text.exported"]
+#[no_mangle]
+pub extern "C" fn write_thing(val: u32) {
+    unsafe {
+        THING = val;
+    }
+}
