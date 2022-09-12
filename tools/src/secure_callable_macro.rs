@@ -28,7 +28,7 @@ pub fn secure_callable(_attr: TokenStream, item: TokenStream) -> TokenStream {
         &format!("{}_VECTOR", function_name.to_uppercase()),
         Span::call_site(),
     );
-    let vector_name_hash = super::hash_vector_name(&function_name);
+    let vector_name_hash = trustzone_m_utils::hash_vector_name(&function_name);
     let function_ptr_type = syn::TypeBareFn {
         lifetimes: None,
         unsafety: function.sig.unsafety,
@@ -88,6 +88,9 @@ mod tests {
         let output = secure_callable(attr_stream, item_stream);
 
         let pretty_output = prettyplease::unparse(&parse2(output).unwrap());
-        pretty_assertions::assert_eq!(pretty_output.replace("\r\n", "\n"), output_text.replace("\r\n", "\n"));
+        pretty_assertions::assert_eq!(
+            pretty_output.replace("\r\n", "\n"),
+            output_text.replace("\r\n", "\n")
+        );
     }
 }

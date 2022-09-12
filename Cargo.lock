@@ -3,6 +3,12 @@
 version = 3
 
 [[package]]
+name = "anyhow"
+version = "1.0.64"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b9a8f622bcf6ff3df478e9deba3e03e4e04b300f8e6a139e192c05fa3490afc7"
+
+[[package]]
 name = "crc"
 version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -108,12 +114,20 @@ version = "0.1.0"
 name = "trustzone-m-tools"
 version = "0.1.0"
 dependencies = [
- "crc",
+ "anyhow",
  "pretty_assertions",
  "prettyplease",
  "proc-macro2",
  "quote",
  "syn",
+ "trustzone-m-utils",
+]
+
+[[package]]
+name = "trustzone-m-utils"
+version = "0.1.0"
+dependencies = [
+ "crc",
 ]
 
 [[package]]
