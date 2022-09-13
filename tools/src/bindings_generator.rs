@@ -13,7 +13,7 @@ pub fn generate_bindings<P: AsRef<Path>>(module_file_path: P) -> Result<(), anyh
 
     fn generate_bindings_inner<P: AsRef<Path>>(
         module_file_path: P,
-        generated_items: &mut Vec<syn::Item>,
+        generated_items: &mut Vec<(syn::Item, String, u32)>,
     ) -> Result<(), anyhow::Error> {
         // Read the source code file
         let file_text = std::fs::read_to_string(module_file_path.as_ref())?;
@@ -52,18 +52,20 @@ pub fn generate_bindings<P: AsRef<Path>>(module_file_path: P) -> Result<(), anyh
 
             if let Some(module_entry) = module_entry {
                 if module_entry.path().is_file() {
-                    generate_bindings(module_entry.path())?;
+                    generate_bindings_inner(module_entry.path(), generated_items)?;
                 }
 
                 if module_entry.path().is_dir() {
-                    generate_bindings(module_entry.path().join("mod.rs")).or_else(|_| {
-                        generate_bindings(
-                            module_entry
-                                .path()
-                                .join(module_entry.path().file_name().unwrap())
-                                .with_extension("rs"),
-                        )
-                    })?;
+                    generate_bindings_inner(module_entry.path().join("mod.rs"), generated_items)
+                        .or_else(|_| {
+                            generate_bindings_inner(
+                                module_entry
+                                    .path()
+                                    .join(module_entry.path().file_name().unwrap())
+                                    .with_extension("rs"),
+                                generated_items,
+                            )
+                        })?;
                 }
             }
         }
@@ -74,6 +76,23 @@ pub fn generate_bindings<P: AsRef<Path>>(module_file_path: P) -> Result<(), anyh
     let mut generated_items = Vec::new();
 
     generate_bindings_inner(module_file_path, &mut generated_items)?;
+
+    // Check if there aren't any name and hash collisions
+    for (_, name, hash) in generated_items.iter() {
+        assert_eq!(
+            generated_items
+                .iter()
+                .filter(|(_, other_name, _)| name == other_name)
+                .count(),
+            1,
+            "Duplicate name found: {name}"
+        );
+        for (_, other_name, other_hash) in generated_items.iter() {
+            if name != other_name {
+                assert_ne!(hash, other_hash, "Hash collision found for `{name}` and `{other_name}`. To fix this, change one of the names. This is a limitation of how the trustzone-m-tools work.");
+            }
+        }
+    }
 
     let output_file = syn::File {
         shebang: None,
@@ -87,7 +106,13 @@ pub fn generate_bindings<P: AsRef<Path>>(module_file_path: P) -> Result<(), anyh
                 .into(),
                 mod_token: Default::default(),
                 ident: syn::Ident::new("trustzone_bindings", Span::call_site()),
-                content: Some((syn::token::Brace::default(), generated_items)),
+                content: Some((
+                    syn::token::Brace::default(),
+                    generated_items
+                        .into_iter()
+                        .map(|(item, _, _)| item)
+                        .collect(),
+                )),
                 semi: None,
             }
             .into(),
@@ -107,111 +132,110 @@ pub fn generate_bindings<P: AsRef<Path>>(module_file_path: P) -> Result<(), anyh
 
 fn generate_file_bindings(
     file: syn::File,
-    generated_items: &mut Vec<syn::Item>,
+    generated_items: &mut Vec<(syn::Item, String, u32)>,
 ) -> Result<Vec<syn::ItemMod>, anyhow::Error> {
     let found_exported_items = TrustzoneExportedItem::find(file.items.iter());
 
     for exported_item in found_exported_items {
         match exported_item {
             TrustzoneExportedItem::SecureCallableFunction { signature } => {
-                generated_items.push({
-                    syn::ItemFn {
-                        attrs: Vec::new(),
-                        vis: syn::VisPublic {
-                            pub_token: Default::default(),
+                let function_call = syn::ExprCall {
+                    attrs: Vec::new(),
+                    func: Box::new(
+                        syn::ExprPath {
+                            attrs: Vec::new(),
+                            qself: None,
+                            path: syn::Path {
+                                leading_colon: None,
+                                segments: Punctuated::from_iter([PathSegment {
+                                    ident: syn::Ident::new("fn_ptr", Span::call_site()),
+                                    arguments: syn::PathArguments::None,
+                                }]),
+                            },
                         }
                         .into(),
-                        sig: signature.clone(),
-                        block: {
-                            let function_name = signature.ident.to_string();
-                            let function_call = syn::ExprCall {
-                                attrs: Vec::new(),
-                                func: Box::new(
-                                    syn::ExprPath {
-                                        attrs: Vec::new(),
-                                        qself: None,
-                                        path: syn::Path {
-                                            leading_colon: None,
-                                            segments: Punctuated::from_iter([PathSegment {
-                                                ident: syn::Ident::new(
-                                                    "fn_ptr",
-                                                    Span::call_site(),
-                                                ),
-                                                arguments: syn::PathArguments::None,
-                                            }]),
-                                        },
-                                    }
-                                    .into(),
-                                ),
-                                paren_token: Default::default(),
-                                args: Punctuated::from_iter(
-                                    signature
-                                        .inputs
-                                        .iter()
-                                        .filter_map(|input| match input {
-                                            syn::FnArg::Typed(t) => Some(t),
-                                            _ => None,
-                                        })
-                                        .map(|input| match input.pat.deref() {
-                                            syn::Pat::Ident(i) => syn::Expr::Path(syn::ExprPath {
-                                                attrs: Vec::new(),
-                                                qself: None,
-                                                path: syn::Path {
-                                                    leading_colon: None,
-                                                    segments: Punctuated::from_iter([
-                                                        PathSegment {
-                                                            ident: i.ident.clone(),
-                                                            arguments: syn::PathArguments::None,
-                                                        },
-                                                    ]),
-                                                },
-                                            }),
-                                            _ => unreachable!(),
-                                        }),
-                                ),
-                            };
-
-                            let function_cast = syn::TypeBareFn {
-                                lifetimes: None,
-                                unsafety: signature.unsafety.clone(),
-                                abi: signature.abi.clone(),
-                                fn_token: Default::default(),
-                                paren_token: Default::default(),
-                                inputs: signature
-                                    .inputs
-                                    .iter()
-                                    .filter_map(|arg| {
-                                        if let syn::FnArg::Typed(t) = arg {
-                                            Some(t)
-                                        } else {
-                                            None
-                                        }
-                                    })
-                                    .map(|pat_type| syn::BareFnArg {
-                                        attrs: pat_type.attrs.clone(),
-                                        name: None,
-                                        ty: *pat_type.ty.clone(),
-                                    })
-                                    .collect(),
-                                variadic: signature.variadic.clone(),
-                                output: signature.output.clone(),
-                            };
-
-                            Box::new(syn::parse_quote! {
-                                {
-                                    const HASH: u32 = trustzone_m_utils::hash_vector_name(#function_name);
-                                    let fn_ptr = unsafe { super::find_vector::<#function_cast>(HASH).unwrap() };
-                                    #function_call
-                                }
+                    ),
+                    paren_token: Default::default(),
+                    args: Punctuated::from_iter(
+                        signature
+                            .inputs
+                            .iter()
+                            .filter_map(|input| match input {
+                                syn::FnArg::Typed(t) => Some(t),
+                                _ => None,
                             })
-                        },
+                            .map(|input| match input.pat.deref() {
+                                syn::Pat::Ident(i) => syn::Expr::Path(syn::ExprPath {
+                                    attrs: Vec::new(),
+                                    qself: None,
+                                    path: syn::Path {
+                                        leading_colon: None,
+                                        segments: Punctuated::from_iter([PathSegment {
+                                            ident: i.ident.clone(),
+                                            arguments: syn::PathArguments::None,
+                                        }]),
+                                    },
+                                }),
+                                _ => unreachable!(),
+                            }),
+                    ),
+                };
+
+                let function_cast = syn::TypeBareFn {
+                    lifetimes: None,
+                    unsafety: signature.unsafety.clone(),
+                    abi: signature.abi.clone(),
+                    fn_token: Default::default(),
+                    paren_token: Default::default(),
+                    inputs: signature
+                        .inputs
+                        .iter()
+                        .filter_map(|arg| {
+                            if let syn::FnArg::Typed(t) = arg {
+                                Some(t)
+                            } else {
+                                None
+                            }
+                        })
+                        .map(|pat_type| syn::BareFnArg {
+                            attrs: pat_type.attrs.clone(),
+                            name: None,
+                            ty: *pat_type.ty.clone(),
+                        })
+                        .collect(),
+                    variadic: signature.variadic.clone(),
+                    output: signature.output.clone(),
+                };
+
+                let function_name = signature.ident.to_string();
+                let function_hash = crate::hash_vector_name(&function_name);
+
+                generated_items.push((syn::ItemFn {
+                    attrs: Vec::new(),
+                    vis: syn::VisPublic {
+                        pub_token: Default::default(),
                     }
-                    .into()
-                });
+                    .into(),
+                    sig: signature.clone(),
+                    block: Box::new(syn::parse_quote! {
+                        {
+                            const HASH: u32 = #function_hash;
+                            let fn_ptr = unsafe { super::find_vector::<#function_cast>(HASH).unwrap() };
+                            #function_call
+                        }
+                    }),
+                }
+                .into(), function_name, function_hash));
             }
-            TrustzoneExportedItem::SecureCallableStatic { name, item_type } => todo!(),
-            TrustzoneExportedItem::NonSecureCallableFunction { signature } => todo!(),
-            TrustzoneExportedItem::NonSecureCallableStatic { name, item_type } => todo!(),
+            TrustzoneExportedItem::SecureCallableStatic {
+                name: _,
+                item_type: _,
+            } => todo!(),
+            TrustzoneExportedItem::NonSecureCallableFunction { signature: _ } => todo!(),
+            TrustzoneExportedItem::NonSecureCallableStatic {
+                name: _,
+                item_type: _,
+            } => todo!(),
         }
     }
 
@@ -233,9 +257,32 @@ fn generate_file_bindings(
 
 enum TrustzoneExportedItem {
     SecureCallableFunction { signature: syn::Signature },
-    SecureCallableStatic { name: (), item_type: syn::Type },
+    SecureCallableStatic { name: String, item_type: syn::Type },
     NonSecureCallableFunction { signature: syn::Signature },
-    NonSecureCallableStatic { name: (), item_type: syn::Type },
+    NonSecureCallableStatic { name: String, item_type: syn::Type },
+}
+
+impl std::fmt::Debug for TrustzoneExportedItem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SecureCallableFunction { signature } => f
+                .debug_struct("SecureCallableFunction")
+                .field("ident", &signature.ident.to_string())
+                .finish(),
+            Self::SecureCallableStatic { name, item_type: _ } => f
+                .debug_struct("SecureCallableStatic")
+                .field("ident", name)
+                .finish(),
+            Self::NonSecureCallableFunction { signature } => f
+                .debug_struct("NonSecureCallableFunction")
+                .field("ident", &signature.ident.to_string())
+                .finish(),
+            Self::NonSecureCallableStatic { name, item_type: _ } => f
+                .debug_struct("NonSecureCallableStatic")
+                .field("ident", name)
+                .finish(),
+        }
+    }
 }
 
 impl TrustzoneExportedItem {

@@ -28,7 +28,7 @@ pub fn secure_callable(_attr: TokenStream, item: TokenStream) -> TokenStream {
         &format!("{}_VECTOR", function_name.to_uppercase()),
         Span::call_site(),
     );
-    let vector_name_hash = trustzone_m_utils::hash_vector_name(&function_name);
+    let vector_name_hash = crate::hash_vector_name(&function_name);
     let function_ptr_type = syn::TypeBareFn {
         lifetimes: None,
         unsafety: function.sig.unsafety,
