@@ -1,0 +1,6 @@
+#[nonsecure_callable]
+pub extern "C" fn write_thing(val: u32) {
+    unsafe {
+        THING = val;
+    }
+}

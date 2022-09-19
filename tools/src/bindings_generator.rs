@@ -116,7 +116,10 @@ pub fn generate_bindings<P: AsRef<Path>>(module_file_path: P) -> Result<(), anyh
                 semi: None,
             }
             .into(),
-            syn::parse_str::<syn::ItemFn>(FIND_VECTOR_FUNCTION)
+            syn::parse_str::<syn::ItemFn>(FIND_NS_VECTOR_FUNCTION)
+                .unwrap()
+                .into(),
+            syn::parse_str::<syn::ItemFn>(FIND_NSC_VECTOR_FUNCTION)
                 .unwrap()
                 .into(),
         ],
@@ -139,6 +142,102 @@ fn generate_file_bindings(
     for exported_item in found_exported_items {
         match exported_item {
             TrustzoneExportedItem::SecureCallableFunction { signature } => {
+                let function_call = syn::ExprCall {
+                    attrs: Vec::new(),
+                    func: Box::new(
+                        syn::ExprPath {
+                            attrs: Vec::new(),
+                            qself: None,
+                            path: syn::Path {
+                                leading_colon: None,
+                                segments: Punctuated::from_iter([PathSegment {
+                                    ident: syn::Ident::new("fn_ptr", Span::call_site()),
+                                    arguments: syn::PathArguments::None,
+                                }]),
+                            },
+                        }
+                        .into(),
+                    ),
+                    paren_token: Default::default(),
+                    args: Punctuated::from_iter(
+                        signature
+                            .inputs
+                            .iter()
+                            .filter_map(|input| match input {
+                                syn::FnArg::Typed(t) => Some(t),
+                                _ => None,
+                            })
+                            .map(|input| match input.pat.deref() {
+                                syn::Pat::Ident(i) => syn::Expr::Path(syn::ExprPath {
+                                    attrs: Vec::new(),
+                                    qself: None,
+                                    path: syn::Path {
+                                        leading_colon: None,
+                                        segments: Punctuated::from_iter([PathSegment {
+                                            ident: i.ident.clone(),
+                                            arguments: syn::PathArguments::None,
+                                        }]),
+                                    },
+                                }),
+                                _ => unreachable!(),
+                            }),
+                    ),
+                };
+
+                let function_cast = syn::TypeBareFn {
+                    lifetimes: None,
+                    unsafety: signature.unsafety.clone(),
+                    abi: Some(syn::Abi {
+                        extern_token: Default::default(),
+                        name: Some(syn::LitStr::new("C-cmse-nonsecure-call", Span::call_site())),
+                    }),
+                    fn_token: Default::default(),
+                    paren_token: Default::default(),
+                    inputs: signature
+                        .inputs
+                        .iter()
+                        .filter_map(|arg| {
+                            if let syn::FnArg::Typed(t) = arg {
+                                Some(t)
+                            } else {
+                                None
+                            }
+                        })
+                        .map(|pat_type| syn::BareFnArg {
+                            attrs: pat_type.attrs.clone(),
+                            name: None,
+                            ty: *pat_type.ty.clone(),
+                        })
+                        .collect(),
+                    variadic: signature.variadic.clone(),
+                    output: signature.output.clone(),
+                };
+
+                let function_name = signature.ident.to_string();
+                let function_hash = crate::hash_vector_name(&function_name);
+
+                generated_items.push((syn::ItemFn {
+                    attrs: Vec::new(),
+                    vis: syn::VisPublic {
+                        pub_token: Default::default(),
+                    }
+                    .into(),
+                    sig: signature.clone(),
+                    block: Box::new(syn::parse_quote! {
+                        {
+                            const HASH: u32 = #function_hash;
+                            let fn_ptr = unsafe { super::find_ns_vector::<#function_cast>(HASH).unwrap() };
+                            #function_call
+                        }
+                    }),
+                }
+                .into(), function_name, function_hash));
+            }
+            TrustzoneExportedItem::SecureCallableStatic {
+                name: _,
+                item_type: _,
+            } => todo!(),
+            TrustzoneExportedItem::NonSecureCallableFunction { signature } => {
                 let function_call = syn::ExprCall {
                     attrs: Vec::new(),
                     func: Box::new(
@@ -220,18 +319,13 @@ fn generate_file_bindings(
                     block: Box::new(syn::parse_quote! {
                         {
                             const HASH: u32 = #function_hash;
-                            let fn_ptr = unsafe { super::find_vector::<#function_cast>(HASH).unwrap() };
+                            let fn_ptr = unsafe { super::find_nsc_vector::<#function_cast>(HASH).unwrap() };
                             #function_call
                         }
                     }),
                 }
                 .into(), function_name, function_hash));
-            }
-            TrustzoneExportedItem::SecureCallableStatic {
-                name: _,
-                item_type: _,
-            } => todo!(),
-            TrustzoneExportedItem::NonSecureCallableFunction { signature: _ } => todo!(),
+            },
             TrustzoneExportedItem::NonSecureCallableStatic {
                 name: _,
                 item_type: _,
@@ -255,6 +349,7 @@ fn generate_file_bindings(
     Ok(found_modules)
 }
 
+#[allow(dead_code)]
 enum TrustzoneExportedItem {
     SecureCallableFunction { signature: syn::Signature },
     SecureCallableStatic { name: String, item_type: syn::Type },
@@ -374,8 +469,9 @@ fn contains_nonsecure_callable_attr(attrs: &[Attribute]) -> bool {
         .any(|attr| attr.path.segments.last().unwrap().ident.to_string() == "nonsecure_callable")
 }
 
-const FIND_VECTOR_FUNCTION: &'static str = "
-unsafe fn find_vector<F>(name_hash: u32) -> Option<F> {
+const FIND_NS_VECTOR_FUNCTION: &'static str = "
+#[allow(dead_code)]
+unsafe fn find_ns_vector<F>(name_hash: u32) -> Option<F> {
     extern \"C\" {
         static _NS_VECTORS: u32;
     }
@@ -396,6 +492,33 @@ unsafe fn find_vector<F>(name_hash: u32) -> Option<F> {
         }
 
         ns_vectors_ptr = ns_vectors_ptr.offset(1);
+    }
+}
+";
+
+const FIND_NSC_VECTOR_FUNCTION: &'static str = "
+#[allow(dead_code)]
+unsafe fn find_nsc_vector<F>(name_hash: u32) -> Option<F> {
+    extern \"C\" {
+        static _NSC_VECTORS: u32;
+    }
+
+    let mut nsc_vectors_ptr = &_NSC_VECTORS as *const u32 as *const (u32, u32);
+
+    loop {
+        let (vector, vector_hash) = *nsc_vectors_ptr;
+
+        if vector == 0 && vector_hash == 0 {
+            // We've reached the end
+            return None;
+        }
+
+        if vector_hash == name_hash {
+            // We've found the vector we've been looking for
+            return Some(core::mem::transmute_copy(&vector));
+        }
+
+        nsc_vectors_ptr = nsc_vectors_ptr.offset(1);
     }
 }
 ";

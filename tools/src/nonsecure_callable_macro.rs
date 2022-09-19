@@ -1,7 +1,7 @@
 use proc_macro2::{Span, TokenStream};
 use syn::parse2;
 
-pub fn secure_callable(_attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn nonsecure_callable(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let function = parse2::<syn::ItemFn>(item);
 
     let function = match function {
@@ -15,7 +15,7 @@ pub fn secure_callable(_attr: TokenStream, item: TokenStream) -> TokenStream {
     if !function.sig.abi.as_ref().map_or(false, |abi| {
         abi.name
             .as_ref()
-            .map_or(false, |abi_name| abi_name.value() == "C")
+            .map_or(false, |abi_name| abi_name.value().to_uppercase() == "C")
     }) {
         return quote::quote! {
             compile_error!("Function must be 'extern \"C\"'");
@@ -57,12 +57,13 @@ pub fn secure_callable(_attr: TokenStream, item: TokenStream) -> TokenStream {
     };
 
     quote::quote! {
-        #[link_section = ".ns_vectors"]
+        #[link_section = ".nsc_vectors"]
         #[no_mangle]
         #[used]
         static #function_vector_name: (#function_ptr_type, u32) = (#function_name_ident, #vector_name_hash);
 
-        #[link_section = ".text.ns_exported"]
+        #[link_section = ".nsc_text.nsc_exported"]
+        #[cmse_nonsecure_entry]
         #[no_mangle]
         #function
     }
@@ -76,8 +77,8 @@ mod tests {
 
     #[test]
     fn test_name() {
-        let input_text = include_str!("../test-sources/secure_callable_simple_test.txt");
-        let output_text = include_str!("../test-sources/secure_callable_simple_result.txt");
+        let input_text = include_str!("../test-sources/nonsecure_callable_simple_test.txt");
+        let output_text = include_str!("../test-sources/nonsecure_callable_simple_result.txt");
 
         let attr: String = input_text.lines().take(1).collect();
         let item: String = input_text.lines().skip(1).collect();
@@ -85,7 +86,7 @@ mod tests {
         let attr_stream = TokenStream::from_str(&attr).unwrap();
         let item_stream = TokenStream::from_str(&item).unwrap();
 
-        let output = secure_callable(attr_stream, item_stream);
+        let output = nonsecure_callable(attr_stream, item_stream);
 
         let pretty_output = prettyplease::unparse(&parse2(output).unwrap());
         pretty_assertions::assert_eq!(
