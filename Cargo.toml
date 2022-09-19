@@ -1,7 +1,8 @@
 [workspace]
 
 members = [
-    "tools",
     "macros",
     "nonsecure-rt",
+    "secure-rt",
+    "tools",
 ]
