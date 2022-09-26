@@ -217,7 +217,9 @@ fn generate_file_bindings(
                 let function_hash = crate::hash_vector_name(&function_name);
 
                 generated_items.push((syn::ItemFn {
-                    attrs: Vec::new(),
+                    attrs: vec![
+                        syn::parse_quote! { #[inline(never)] }
+                    ],
                     vis: syn::VisPublic {
                         pub_token: Default::default(),
                     }
@@ -310,7 +312,9 @@ fn generate_file_bindings(
                 let function_hash = crate::hash_vector_name(&function_name);
 
                 generated_items.push((syn::ItemFn {
-                    attrs: Vec::new(),
+                    attrs: vec![
+                        syn::parse_quote! { #[inline(never)] }
+                    ],
                     vis: syn::VisPublic {
                         pub_token: Default::default(),
                     }
@@ -471,6 +475,7 @@ fn contains_nonsecure_callable_attr(attrs: &[Attribute]) -> bool {
 
 const FIND_NS_VECTOR_FUNCTION: &'static str = "
 #[allow(dead_code)]
+#[inline(never)]
 unsafe fn find_ns_vector<F>(name_hash: u32) -> Option<F> {
     extern \"C\" {
         static _NS_VECTORS: u32;
@@ -498,6 +503,7 @@ unsafe fn find_ns_vector<F>(name_hash: u32) -> Option<F> {
 
 const FIND_NSC_VECTOR_FUNCTION: &'static str = "
 #[allow(dead_code)]
+#[inline(never)]
 unsafe fn find_nsc_vector<F>(name_hash: u32) -> Option<F> {
     extern \"C\" {
         static _NSC_VECTORS: u32;

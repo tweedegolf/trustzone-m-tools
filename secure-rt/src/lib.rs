@@ -17,7 +17,6 @@ pub use generic::initialize;
 #[cfg(not(any(feature = "_nrf", feature = "generic")))]
 compile_error!("Select a trustzone runtime with the feature flags. Pick the feature of your chip or `generic`.");
 
-
 pub(crate) fn read_address_permissions(address: u32) -> SauRegionAttribute {
     let value = cortex_m::asm::tt(address as *mut u32);
 

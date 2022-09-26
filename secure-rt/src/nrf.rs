@@ -1,3 +1,5 @@
+use rtt_target::rprintln;
+
 #[cfg(feature = "nrf5340")]
 pub use nrf5340_app_pac::SPU_S as SPU;
 #[cfg(feature = "nrf9160")]
@@ -58,6 +60,9 @@ pub fn initialize() {
             ctrl.0 = 0x00000003;
             ctrl
         });
+
+        // Also set the stack pointer of nonsecure
+        cortex_m::register::msp::write_ns(ns_ram_end);
     }
 
     let spu = unsafe { core::mem::transmute::<_, SPU>(()) };
@@ -68,7 +73,7 @@ pub fn initialize() {
         .enumerate()
         .map(|(index, region)| (index, index as u32 * FLASH_REGION_SIZE, region))
     {
-        if nsc_flash.contains(&address) {
+        if nsc_flash.contains(&(address + FLASH_REGION_SIZE - 4096)) && !ns_flash.contains(&address) {
             region.perm.write(|w| {
                 w.execute()
                     .enable()
@@ -85,6 +90,8 @@ pub fn initialize() {
                 .write(|w| unsafe { w.region().bits(index as u8) });
             // It's really weird that we can only use 4096 bytes per region as NSC
             spu.flashnsc[0].size.write(|w| w.size()._4096());
+
+            rprintln!("Flash {} @ {:X}..={:X} = NSC", index, address, address + FLASH_REGION_SIZE);
         } else if ns_flash.contains(&address) {
             region.perm.write(|w| {
                 w.execute()
@@ -96,6 +103,7 @@ pub fn initialize() {
                     .secattr()
                     .non_secure()
             });
+            rprintln!("Flash {} @ {:X}..={:X} = NS", index, address, address + FLASH_REGION_SIZE);
         } else {
             region.perm.write(|w| {
                 w.execute()
@@ -107,6 +115,7 @@ pub fn initialize() {
                     .secattr()
                     .secure()
             });
+            rprintln!("Flash {} @ {:X}..={:X} = S", index, address, address + FLASH_REGION_SIZE);
         }
     }
 
