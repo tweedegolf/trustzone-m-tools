@@ -57,7 +57,7 @@ pub fn initialize() {
     let sau = unsafe { core::mem::transmute::<_, cortex_m::peripheral::SAU>(()) };
     unsafe {
         sau.ctrl.modify(|mut ctrl| {
-            ctrl.0 = 0x00000003;
+            ctrl.0 = 0x00000002;
             ctrl
         });
 
