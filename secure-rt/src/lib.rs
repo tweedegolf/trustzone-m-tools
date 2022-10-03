@@ -1,5 +1,6 @@
 #![no_std]
 
+#[cfg(feature = "generic")]
 use cortex_m::peripheral::sau::SauRegionAttribute;
 
 #[cfg(feature = "_nrf")]
@@ -14,10 +15,11 @@ pub use nrf::initialize;
 #[cfg(feature = "generic")]
 pub use generic::initialize;
 
-#[cfg(not(any(feature = "_nrf", feature = "generic")))]
+#[cfg(not(any(feature = "_nrf", feature = "generic", not(target_arch = "arm"))))]
 compile_error!("Select a trustzone runtime with the feature flags. Pick the feature of your chip or `generic`.");
 
-pub(crate) fn read_address_permissions(address: u32) -> SauRegionAttribute {
+#[cfg(feature = "generic")]
+pub fn read_address_permissions(address: u32) -> SauRegionAttribute {
     let value = cortex_m::asm::tt(address as *mut u32);
 
     let s = value & (1 << 22) > 0;

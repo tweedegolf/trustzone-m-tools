@@ -1,4 +1,4 @@
-use proc_macro2::{Span, TokenStream};
+use proc_macro2::TokenStream;
 use syn::parse2;
 
 pub fn nonsecure_callable(_attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -23,46 +23,25 @@ pub fn nonsecure_callable(_attr: TokenStream, item: TokenStream) -> TokenStream 
     }
 
     let function_name = function.sig.ident.to_string();
-    let function_name_ident = syn::Ident::new(&function_name, Span::call_site());
-    let function_vector_name = syn::Ident::new(
-        &format!("{}_VECTOR", function_name.to_uppercase()),
-        Span::call_site(),
-    );
-    let vector_name_hash = crate::hash_vector_name(&function_name);
-    let function_ptr_type = syn::TypeBareFn {
-        lifetimes: None,
-        unsafety: function.sig.unsafety,
-        abi: function.sig.abi.clone(),
-        fn_token: function.sig.fn_token,
-        paren_token: function.sig.paren_token,
-        inputs: function
-            .sig
-            .inputs
-            .iter()
-            .filter_map(|arg| {
-                if let syn::FnArg::Typed(t) = arg {
-                    Some(t)
-                } else {
-                    None
-                }
-            })
-            .map(|pat_type| syn::BareFnArg {
-                attrs: pat_type.attrs.clone(),
-                name: None,
-                ty: *pat_type.ty.clone(),
-            })
-            .collect(),
-        variadic: function.sig.variadic.clone(),
-        output: function.sig.output.clone(),
-    };
+    let function_veneer_name = format!("{}_veneer", function_name.to_uppercase());
+    let function_name_hash = crate::hash_vector_name(&function_name);
+
+    let global = format!(".global {function_veneer_name}");
+    let label = format!("{function_veneer_name}:");
+    let branch = format!("B.w {function_name}");
+    let hash = format!(".4byte {function_name_hash}");
 
     quote::quote! {
-        #[link_section = ".nsc_vectors"]
-        #[no_mangle]
-        #[used]
-        static #function_vector_name: (#function_ptr_type, u32) = (#function_name_ident, #vector_name_hash);
+        core::arch::global_asm!(
+            ".section .nsc_veneers, \"ax\"",
+            #global,
+            ".thumb_func",
+            #label,
+                "SG",
+                #branch,
+                #hash,
+        );
 
-        #[link_section = ".nsc_text.nsc_exported"]
         #[cmse_nonsecure_entry]
         #[no_mangle]
         #function

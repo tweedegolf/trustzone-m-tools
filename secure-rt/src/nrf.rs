@@ -91,7 +91,6 @@ pub fn initialize() {
             // It's really weird that we can only use 4096 bytes per region as NSC
             spu.flashnsc[0].size.write(|w| w.size()._4096());
 
-            rprintln!("Flash {} @ {:X}..={:X} = NSC", index, address, address + FLASH_REGION_SIZE);
         } else if ns_flash.contains(&address) {
             region.perm.write(|w| {
                 w.execute()
@@ -103,7 +102,6 @@ pub fn initialize() {
                     .secattr()
                     .non_secure()
             });
-            rprintln!("Flash {} @ {:X}..={:X} = NS", index, address, address + FLASH_REGION_SIZE);
         } else {
             region.perm.write(|w| {
                 w.execute()
@@ -115,7 +113,6 @@ pub fn initialize() {
                     .secattr()
                     .secure()
             });
-            rprintln!("Flash {} @ {:X}..={:X} = S", index, address, address + FLASH_REGION_SIZE);
         }
     }
 
@@ -166,4 +163,7 @@ pub fn initialize() {
             });
         }
     }
+
+    cortex_m::asm::isb();
+    cortex_m::asm::dsb();
 }

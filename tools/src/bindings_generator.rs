@@ -8,11 +8,15 @@ use std::{
 };
 use syn::{punctuated::Punctuated, Attribute, PathSegment};
 
-pub fn generate_bindings<P: AsRef<Path>>(module_file_path: P) -> Result<(), anyhow::Error> {
+pub fn generate_bindings<P: AsRef<Path>>(
+    module_file_path: P,
+    secure: bool,
+) -> Result<(), anyhow::Error> {
     let out_dir = std::env::var("OUT_DIR").unwrap();
 
     fn generate_bindings_inner<P: AsRef<Path>>(
         module_file_path: P,
+        secure: bool,
         generated_items: &mut Vec<(syn::Item, String, u32)>,
     ) -> Result<(), anyhow::Error> {
         // Read the source code file
@@ -52,20 +56,25 @@ pub fn generate_bindings<P: AsRef<Path>>(module_file_path: P) -> Result<(), anyh
 
             if let Some(module_entry) = module_entry {
                 if module_entry.path().is_file() {
-                    generate_bindings_inner(module_entry.path(), generated_items)?;
+                    generate_bindings_inner(module_entry.path(), secure, generated_items)?;
                 }
 
                 if module_entry.path().is_dir() {
-                    generate_bindings_inner(module_entry.path().join("mod.rs"), generated_items)
-                        .or_else(|_| {
-                            generate_bindings_inner(
-                                module_entry
-                                    .path()
-                                    .join(module_entry.path().file_name().unwrap())
-                                    .with_extension("rs"),
-                                generated_items,
-                            )
-                        })?;
+                    generate_bindings_inner(
+                        module_entry.path().join("mod.rs"),
+                        secure,
+                        generated_items,
+                    )
+                    .or_else(|_| {
+                        generate_bindings_inner(
+                            module_entry
+                                .path()
+                                .join(module_entry.path().file_name().unwrap())
+                                .with_extension("rs"),
+                            secure,
+                            generated_items,
+                        )
+                    })?;
                 }
             }
         }
@@ -75,7 +84,7 @@ pub fn generate_bindings<P: AsRef<Path>>(module_file_path: P) -> Result<(), anyh
 
     let mut generated_items = Vec::new();
 
-    generate_bindings_inner(module_file_path, &mut generated_items)?;
+    generate_bindings_inner(module_file_path, secure, &mut generated_items)?;
 
     // Check if there aren't any name and hash collisions
     for (_, name, hash) in generated_items.iter() {
@@ -94,36 +103,78 @@ pub fn generate_bindings<P: AsRef<Path>>(module_file_path: P) -> Result<(), anyh
         }
     }
 
-    let output_file = syn::File {
+    let mut output_file = syn::File {
         shebang: None,
         attrs: Vec::new(),
-        items: vec![
-            syn::ItemMod {
-                attrs: Vec::new(),
-                vis: syn::VisPublic {
-                    pub_token: Default::default(),
-                }
-                .into(),
-                mod_token: Default::default(),
-                ident: syn::Ident::new("trustzone_bindings", Span::call_site()),
-                content: Some((
-                    syn::token::Brace::default(),
-                    generated_items
-                        .into_iter()
-                        .map(|(item, _, _)| item)
-                        .collect(),
-                )),
-                semi: None,
+        items: vec![syn::ItemMod {
+            attrs: Vec::new(),
+            vis: syn::VisPublic {
+                pub_token: Default::default(),
             }
             .into(),
+            mod_token: Default::default(),
+            ident: syn::Ident::new("trustzone_bindings", Span::call_site()),
+            content: Some((
+                syn::token::Brace::default(),
+                generated_items
+                    .into_iter()
+                    .map(|(item, _, _)| item)
+                    .collect(),
+            )),
+            semi: None,
+        }
+        .into()],
+    };
+
+    if secure {
+        output_file.items.push(
             syn::parse_str::<syn::ItemFn>(FIND_NS_VECTOR_FUNCTION)
                 .unwrap()
                 .into(),
+        );
+
+        output_file.items.push(
             syn::parse_str::<syn::ItemFn>(FIND_NSC_VECTOR_FUNCTION)
                 .unwrap()
                 .into(),
-        ],
-    };
+        );
+
+
+
+        // If we're secure, then we have to create a veneer for the searcher
+        output_file.items.push(
+            syn::parse_str::<syn::Item>(
+                "
+                core::arch::global_asm!(
+                    \".section .nsc_veneers, \\\"ax\\\"\",
+                    \".global searcher_veneer\",
+                    \".thumb_func\",
+                    \"searcher_veneer:\",
+                        \"SG\",
+                        \"B.w find_nsc_veneer\",
+                        \".4byte 0\"
+                );
+            ",
+            )
+            .unwrap(),
+        );
+    } else {
+        // If we're nonsecure, then we have to create a function that calls the searcher veneer
+        output_file.items.push(syn::parse_str::<syn::Item>(
+            "
+                fn find_nsc_veneer(hash: u32) -> *const u32 {
+                    extern \"C\" {
+                        static _NSC_VENEERS: u32;
+                    }
+                
+                    unsafe {
+                        let searcher_veneer_ptr = core::mem::transmute::<_, extern \"C\" fn(u32) -> *const u32>(&_NSC_VENEERS as *const u32);
+                        searcher_veneer_ptr(hash)
+                    }
+                }
+            ").unwrap()
+        );
+    }
 
     let mut output_bindings_file =
         fs::File::create(PathBuf::from(out_dir).join("trustzone_bindings.rs"))?;
@@ -323,13 +374,22 @@ fn generate_file_bindings(
                     block: Box::new(syn::parse_quote! {
                         {
                             const HASH: u32 = #function_hash;
-                            let fn_ptr = unsafe { super::find_nsc_vector::<#function_cast>(HASH).unwrap() };
+                            let fn_ptr = super::find_nsc_veneer(HASH);
+
+                            if fn_ptr.is_null() {
+                                panic!("Pointer is null");
+                            }
+
+                            let fn_ptr = unsafe {
+                                core::mem::transmute::<_, #function_cast>(fn_ptr)
+                            };
+
                             #function_call
                         }
                     }),
                 }
                 .into(), function_name, function_hash));
-            },
+            }
             TrustzoneExportedItem::NonSecureCallableStatic {
                 name: _,
                 item_type: _,
@@ -474,7 +534,6 @@ fn contains_nonsecure_callable_attr(attrs: &[Attribute]) -> bool {
 }
 
 const FIND_NS_VECTOR_FUNCTION: &'static str = "
-#[allow(dead_code)]
 #[inline(never)]
 unsafe fn find_ns_vector<F>(name_hash: u32) -> Option<F> {
     extern \"C\" {
@@ -488,6 +547,7 @@ unsafe fn find_ns_vector<F>(name_hash: u32) -> Option<F> {
 
         if vector == 0 && vector_hash == 0 {
             // We've reached the end
+            rprintln!(\"Cannot find vector\");
             return None;
         }
 
@@ -502,29 +562,31 @@ unsafe fn find_ns_vector<F>(name_hash: u32) -> Option<F> {
 ";
 
 const FIND_NSC_VECTOR_FUNCTION: &'static str = "
-#[allow(dead_code)]
 #[inline(never)]
-unsafe fn find_nsc_vector<F>(name_hash: u32) -> Option<F> {
+#[no_mangle]
+#[cmse_nonsecure_entry]
+unsafe extern \"C\" fn find_nsc_veneer(name_hash: u32) -> *const u32 {
     extern \"C\" {
-        static _NSC_VECTORS: u32;
+        static _NSC_VENEERS: u32;
     }
 
-    let mut nsc_vectors_ptr = &_NSC_VECTORS as *const u32 as *const (u32, u32);
+    let mut nsc_veneers_ptr = (&_NSC_VENEERS as *const u32 as *const ([u8; 8], u32)).offset(1);
 
     loop {
-        let (vector, vector_hash) = *nsc_vectors_ptr;
+        let (_, vector_hash) = *nsc_veneers_ptr;
 
-        if vector == 0 && vector_hash == 0 {
+        if vector_hash == 0 {
             // We've reached the end
-            return None;
+            rprintln!(\"Cannot find veneer\");
+            return core::ptr::null();
         }
 
         if vector_hash == name_hash {
             // We've found the vector we've been looking for
-            return Some(core::mem::transmute_copy(&vector));
+            return nsc_veneers_ptr as _;
         }
 
-        nsc_vectors_ptr = nsc_vectors_ptr.offset(1);
+        nsc_veneers_ptr = nsc_veneers_ptr.offset(1);
     }
 }
 ";
