@@ -27,10 +27,11 @@ SECTIONS
 {
   PROVIDE(_stack_start = ORIGIN(NS_RAM) + LENGTH(NS_RAM));
 
-  /* ### .ns_vectors */
-  .ns_vectors ORIGIN(NS_FLASH) :
+  /* ### .ns_veneers */
+  .ns_veneers ORIGIN(NS_FLASH) :
   {
-    KEEP(*(.ns_vectors));
+    KEEP(*(.ns_veneers.initializer));
+    KEEP(*(.ns_veneers));
     . = . + 8; /* Add a vector at the end that should end up as 0's to indicate that we've reached the end */
     . = ALIGN(4); /* Pad .text to the alignment to workaround overlapping load section bug in old lld */
   } > NS_FLASH
@@ -42,7 +43,6 @@ SECTIONS
   {
     __stext = .;
 
-    KEEP(*(.text.ns_exported));
     *(.text .text.*);
 
     . = ALIGN(4); /* Pad .text to the alignment to workaround overlapping load section bug in old lld */

@@ -1,8 +1,7 @@
-#[link_section = ".nsc_vectors"]
-#[no_mangle]
-#[used]
-static WRITE_THING_VECTOR: (extern "C" fn(u32), u32) = (write_thing, 4157143984u32);
-#[link_section = ".nsc_text.nsc_exported"]
+core::arch::global_asm!(
+    ".section .nsc_veneers, \"ax\"", ".global WRITE_THING_veneer", ".thumb_func",
+    "WRITE_THING_veneer:", "SG", "B.w write_thing", ".4byte 4157143984",
+);
 #[cmse_nonsecure_entry]
 #[no_mangle]
 pub extern "C" fn write_thing(val: u32) {

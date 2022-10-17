@@ -1,7 +1,5 @@
 use cortex_m::peripheral::sau::{SauError, SauRegion, SauRegionAttribute};
 
-use crate::read_address_permissions;
-
 pub fn initialize() {
     extern "C" {
         static _nsc_flash_start: u32;
@@ -27,77 +25,47 @@ pub fn initialize() {
 
     let mut sau = unsafe { core::mem::transmute::<_, cortex_m::peripheral::SAU>(()) };
 
-    let mut current_region_number = 0;
+    // Set nsc flash
+    sau.set_region(
+        0,
+        SauRegion {
+            base_address: nsc_flash_start,
+            limit_address: nsc_flash_end - 1,
+            attribute: SauRegionAttribute::NonSecureCallable,
+        },
+    ).unwrap();
 
-    if !matches!(
-        read_address_permissions(nsc_flash_start),
-        SauRegionAttribute::NonSecureCallable
-    ) {
-        // Set nsc flash
-        sau.set_region(
-            current_region_number,
-            SauRegion {
-                base_address: nsc_flash_start,
-                limit_address: nsc_flash_end - 1,
-                attribute: SauRegionAttribute::NonSecureCallable,
-            },
-        ).unwrap();
+    // Set nsc ram
+    sau.set_region(
+        1,
+        SauRegion {
+            base_address: nsc_ram_start,
+            limit_address: nsc_ram_end - 1,
+            attribute: SauRegionAttribute::NonSecureCallable,
+        },
+    ).unwrap();
 
-        current_region_number += 1;
-    }
+    // Set ns flash
+    sau.set_region(
+        2,
+        SauRegion {
+            base_address: ns_flash_start,
+            limit_address: ns_flash_end - 1,
+            attribute: SauRegionAttribute::NonSecure,
+        },
+    ).unwrap();
 
-    if !matches!(
-        read_address_permissions(nsc_ram_start),
-        SauRegionAttribute::NonSecureCallable
-    ) {
-        // Set nsc ram
-        sau.set_region(
-            current_region_number,
-            SauRegion {
-                base_address: nsc_ram_start,
-                limit_address: nsc_ram_end - 1,
-                attribute: SauRegionAttribute::NonSecureCallable,
-            },
-        ).unwrap();
-
-        current_region_number += 1;
-    }
-
-    if !matches!(
-        read_address_permissions(ns_flash_start),
-        SauRegionAttribute::NonSecure
-    ) {
-        // Set ns flash
-        sau.set_region(
-            current_region_number,
-            SauRegion {
-                base_address: ns_flash_start,
-                limit_address: ns_flash_end - 1,
-                attribute: SauRegionAttribute::NonSecure,
-            },
-        ).unwrap();
-
-        current_region_number += 1;
-    }
-
-    if !matches!(
-        read_address_permissions(ns_ram_start),
-        SauRegionAttribute::NonSecure
-    ) {
-        // Set ns ram
-        sau.set_region(
-            current_region_number,
-            SauRegion {
-                base_address: ns_ram_start,
-                limit_address: ns_ram_end - 1,
-                attribute: SauRegionAttribute::NonSecure,
-            },
-        ).unwrap();
-
-        current_region_number += 1;
-    }
-
-    debug_assert!(current_region_number <= sau.region_numbers());
+    // Set ns ram
+    sau.set_region(
+        3,
+        SauRegion {
+            base_address: ns_ram_start,
+            limit_address: ns_ram_end - 1,
+            attribute: SauRegionAttribute::NonSecure,
+        },
+    ).unwrap();
 
     sau.enable();
+
+    unsafe { crate::initialize_ns_data(); }
 }

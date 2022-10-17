@@ -146,7 +146,7 @@ pub fn generate_bindings<P: AsRef<Path>>(
             syn::parse_str::<syn::Item>(
                 "
                 core::arch::global_asm!(
-                    \".section .nsc_veneers, \\\"ax\\\"\",
+                    \".section .nsc_veneers.searcher, \\\"ax\\\"\",
                     \".global searcher_veneer\",
                     \".thumb_func\",
                     \"searcher_veneer:\",
@@ -158,11 +158,27 @@ pub fn generate_bindings<P: AsRef<Path>>(
             )
             .unwrap(),
         );
+
+        // If we're secure, then we have to create a function that calls the initializer veneer
+        output_file.items.push(syn::parse_str::<syn::Item>(
+            "
+                #[no_mangle]
+                #[inline(never)]
+                unsafe extern \"C\" fn initialize_ns_data() {
+                    extern \"C\" {
+                        static _NS_VENEERS: u32;
+                    }
+                
+                    let initializer_veneer_ptr = core::mem::transmute::<_, extern \"C-cmse-nonsecure-call\" fn()>(&_NS_VENEERS as *const u32);
+                    initializer_veneer_ptr()
+                }
+            ").unwrap()
+        );        
     } else {
         // If we're nonsecure, then we have to create a function that calls the searcher veneer
         output_file.items.push(syn::parse_str::<syn::Item>(
             "
-                fn find_nsc_veneer(hash: u32) -> *const u32 {
+                extern \"C\" fn find_nsc_veneer(hash: u32) -> *const u32 {
                     extern \"C\" {
                         static _NSC_VENEERS: u32;
                     }
@@ -173,6 +189,23 @@ pub fn generate_bindings<P: AsRef<Path>>(
                     }
                 }
             ").unwrap()
+        );
+
+        // If we're nonsecure, then we have to create a veneer for the initializer
+        output_file.items.push(
+            syn::parse_str::<syn::Item>(
+                "
+                core::arch::global_asm!(
+                    \".section .ns_veneers.initializer, \\\"ax\\\"\",
+                    \".global initializer_veneer\",
+                    \".thumb_func\",
+                    \"initializer_veneer:\",
+                        \"B.w initialize_ns_data\",
+                        \".4byte 0\"
+                );
+            ",
+            )
+            .unwrap(),
         );
     }
 
@@ -279,17 +312,22 @@ fn generate_file_bindings(
                     block: Box::new(syn::parse_quote! {
                         {
                             const HASH: u32 = #function_hash;
-                            let fn_ptr = unsafe { super::find_ns_vector::<#function_cast>(HASH).unwrap() };
+                            let fn_ptr = unsafe { super::find_ns_veneer(HASH) };
+
+                            if fn_ptr.is_null() {
+                                panic!("Pointer is null");
+                            }
+
+                            let fn_ptr = unsafe {
+                                core::mem::transmute::<_, #function_cast>(fn_ptr)
+                            };
+
                             #function_call
                         }
                     }),
                 }
                 .into(), function_name, function_hash));
             }
-            TrustzoneExportedItem::SecureCallableStatic {
-                name: _,
-                item_type: _,
-            } => todo!(),
             TrustzoneExportedItem::NonSecureCallableFunction { signature } => {
                 let function_call = syn::ExprCall {
                     attrs: Vec::new(),
@@ -390,10 +428,6 @@ fn generate_file_bindings(
                 }
                 .into(), function_name, function_hash));
             }
-            TrustzoneExportedItem::NonSecureCallableStatic {
-                name: _,
-                item_type: _,
-            } => todo!(),
         }
     }
 
@@ -416,9 +450,7 @@ fn generate_file_bindings(
 #[allow(dead_code)]
 enum TrustzoneExportedItem {
     SecureCallableFunction { signature: syn::Signature },
-    SecureCallableStatic { name: String, item_type: syn::Type },
     NonSecureCallableFunction { signature: syn::Signature },
-    NonSecureCallableStatic { name: String, item_type: syn::Type },
 }
 
 impl std::fmt::Debug for TrustzoneExportedItem {
@@ -428,17 +460,9 @@ impl std::fmt::Debug for TrustzoneExportedItem {
                 .debug_struct("SecureCallableFunction")
                 .field("ident", &signature.ident.to_string())
                 .finish(),
-            Self::SecureCallableStatic { name, item_type: _ } => f
-                .debug_struct("SecureCallableStatic")
-                .field("ident", name)
-                .finish(),
             Self::NonSecureCallableFunction { signature } => f
                 .debug_struct("NonSecureCallableFunction")
                 .field("ident", &signature.ident.to_string())
-                .finish(),
-            Self::NonSecureCallableStatic { name, item_type: _ } => f
-                .debug_struct("NonSecureCallableStatic")
-                .field("ident", name)
                 .finish(),
         }
     }
@@ -535,28 +559,27 @@ fn contains_nonsecure_callable_attr(attrs: &[Attribute]) -> bool {
 
 const FIND_NS_VECTOR_FUNCTION: &'static str = "
 #[inline(never)]
-unsafe fn find_ns_vector<F>(name_hash: u32) -> Option<F> {
+unsafe extern \"C\" fn find_ns_veneer(name_hash: u32) -> *const u32 {
     extern \"C\" {
-        static _NS_VECTORS: u32;
+        static _NS_VENEERS: u32;
     }
 
-    let mut ns_vectors_ptr = &_NS_VECTORS as *const u32 as *const (u32, u32);
+    let mut ns_veneers_ptr = (&_NS_VENEERS as *const u32 as *const ([u8; 4], u32)).offset(1);
 
     loop {
-        let (vector, vector_hash) = *ns_vectors_ptr;
+        let (_, vector_hash) = *ns_veneers_ptr;
 
-        if vector == 0 && vector_hash == 0 {
+        if vector_hash == 0 {
             // We've reached the end
-            rprintln!(\"Cannot find vector\");
-            return None;
+            return core::ptr::null();
         }
 
         if vector_hash == name_hash {
             // We've found the vector we've been looking for
-            return Some(core::mem::transmute_copy(&vector));
+            return ns_veneers_ptr as _;
         }
 
-        ns_vectors_ptr = ns_vectors_ptr.offset(1);
+        ns_veneers_ptr = ns_veneers_ptr.offset(1);
     }
 }
 ";
@@ -570,10 +593,14 @@ unsafe extern \"C\" fn find_nsc_veneer(name_hash: u32) -> *const u32 {
         static _NSC_VENEERS: u32;
     }
 
+    rtt_target::rprintln!(\"Looking for veneer hash {:#010X}\", name_hash);
+
     let mut nsc_veneers_ptr = (&_NSC_VENEERS as *const u32 as *const ([u8; 8], u32)).offset(1);
 
     loop {
         let (_, vector_hash) = *nsc_veneers_ptr;
+
+        rtt_target::rprintln!(\"Now at ptr {:p} with hash {:#010X}\", nsc_veneers_ptr, vector_hash);
 
         if vector_hash == 0 {
             // We've reached the end

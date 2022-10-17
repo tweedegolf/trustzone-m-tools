@@ -1,5 +1,3 @@
-use rtt_target::rprintln;
-
 #[cfg(feature = "nrf5340")]
 pub use nrf5340_app_pac::SPU_S as SPU;
 #[cfg(feature = "nrf9160")]
@@ -19,8 +17,6 @@ pub fn initialize() {
     extern "C" {
         static _nsc_flash_start: u32;
         static _nsc_flash_end: u32;
-        static _nsc_ram_start: u32;
-        static _nsc_ram_end: u32;
 
         static _ns_flash_start: u32;
         static _ns_flash_end: u32;
@@ -31,14 +27,7 @@ pub fn initialize() {
     let nsc_flash_start = unsafe { core::mem::transmute::<_, u32>(&_nsc_flash_start) };
     let nsc_flash_end = unsafe { core::mem::transmute::<_, u32>(&_nsc_flash_end) };
     let nsc_flash = nsc_flash_start..nsc_flash_end;
-    assert_eq!((nsc_flash_start - FLASH_REGION_SIZE + 4096) % FLASH_REGION_SIZE, 0);
     assert!(nsc_flash.clone().len() <= 4096);
-
-    let nsc_ram_start = unsafe { core::mem::transmute::<_, u32>(&_nsc_ram_start) };
-    let nsc_ram_end = unsafe { core::mem::transmute::<_, u32>(&_nsc_ram_end) };
-    let nsc_ram = nsc_ram_start..nsc_ram_end;
-    assert_eq!((nsc_ram_start - RAM_REGION_SIZE + 4096) % RAM_REGION_SIZE, 0);
-    assert!(nsc_ram.clone().len() <= 4096);
 
     let ns_flash_start = unsafe { core::mem::transmute::<_, u32>(&_ns_flash_start) };
     let ns_flash_end = unsafe { core::mem::transmute::<_, u32>(&_ns_flash_end) };
@@ -52,12 +41,79 @@ pub fn initialize() {
     assert_eq!(ns_ram_start % RAM_REGION_SIZE, 0);
     assert_eq!(ns_ram_end % RAM_REGION_SIZE, 0);
 
-    // We're gonna use Nordic's SPU instead of the default SAU. To do that we must disable the SAU and
+    let spu = unsafe { core::mem::transmute::<_, SPU>(()) };
+
+    for (address, region) in spu
+        .flashregion
+        .iter()
+        .enumerate()
+        .map(|(index, region)| (index as u32 * FLASH_REGION_SIZE, region))
+    {
+        if ns_flash.contains(&address) {
+            region.perm.write(|w| {
+                w.execute()
+                    .enable()
+                    .read()
+                    .enable()
+                    .write()
+                    .enable()
+                    .secattr()
+                    .non_secure()
+            });
+        } else {
+            region.perm.write(|w| {
+                w.execute()
+                    .enable()
+                    .read()
+                    .enable()
+                    .write()
+                    .enable()
+                    .secattr()
+                    .secure()
+            });
+        }
+    }
+
+    set_nsc_region(&spu, nsc_flash_start..nsc_flash_end);
+
+    for (address, region) in spu
+        .ramregion
+        .iter()
+        .enumerate()
+        .map(|(index, region)| (0x20000000 + index as u32 * RAM_REGION_SIZE, region))
+    {
+        if ns_ram.contains(&address) {
+            region.perm.write(|w| {
+                w.execute()
+                    .enable()
+                    .read()
+                    .enable()
+                    .write()
+                    .enable()
+                    .secattr()
+                    .non_secure()
+            });
+        } else {
+            region.perm.write(|w| {
+                w.execute()
+                    .enable()
+                    .read()
+                    .enable()
+                    .write()
+                    .enable()
+                    .secattr()
+                    .secure()
+            });
+        }
+    }
+
+    // We're using Nordic's SPU instead of the default SAU. To do that we must disable the SAU and
     // set the ALLNS (All Non-secure) bit.
     let sau = unsafe { core::mem::transmute::<_, cortex_m::peripheral::SAU>(()) };
     unsafe {
         sau.ctrl.modify(|mut ctrl| {
-            ctrl.0 = 0x00000002;
+            ctrl.0 &= !1;
+            ctrl.0 |= 1 << 1;
             ctrl
         });
 
@@ -65,105 +121,27 @@ pub fn initialize() {
         cortex_m::register::msp::write_ns(ns_ram_end);
     }
 
-    let spu = unsafe { core::mem::transmute::<_, SPU>(()) };
-
-    for (index, address, region) in spu
-        .flashregion
-        .iter()
-        .enumerate()
-        .map(|(index, region)| (index, index as u32 * FLASH_REGION_SIZE, region))
-    {
-        if nsc_flash.contains(&(address + FLASH_REGION_SIZE - 4096)) && !ns_flash.contains(&address) {
-            region.perm.write(|w| {
-                w.execute()
-                    .enable()
-                    .read()
-                    .enable()
-                    .write()
-                    .enable()
-                    .secattr()
-                    .secure()
-            });
-
-            spu.flashnsc[0]
-                .region
-                .write(|w| unsafe { w.region().bits(index as u8) });
-            // It's really weird that we can only use 4096 bytes per region as NSC
-            spu.flashnsc[0].size.write(|w| w.size()._4096());
-
-        } else if ns_flash.contains(&address) {
-            region.perm.write(|w| {
-                w.execute()
-                    .enable()
-                    .read()
-                    .enable()
-                    .write()
-                    .enable()
-                    .secattr()
-                    .non_secure()
-            });
-        } else {
-            region.perm.write(|w| {
-                w.execute()
-                    .enable()
-                    .read()
-                    .enable()
-                    .write()
-                    .enable()
-                    .secattr()
-                    .secure()
-            });
-        }
-    }
-
-    for (index, address, region) in spu
-        .ramregion
-        .iter()
-        .enumerate()
-        .map(|(index, region)| (index, 0x20000000 + index as u32 * RAM_REGION_SIZE, region))
-    {
-        if nsc_ram.contains(&address) {
-            region.perm.write(|w| {
-                w.execute()
-                    .enable()
-                    .read()
-                    .enable()
-                    .write()
-                    .enable()
-                    .secattr()
-                    .secure()
-            });
-
-            spu.ramnsc[0]
-                .region
-                .write(|w| unsafe { w.region().bits(index as u8) });
-            // It's really weird that we can only use 4096 bytes per region as NSC
-            spu.ramnsc[0].size.write(|w| w.size()._4096());
-        } else if ns_ram.contains(&address) {
-            region.perm.write(|w| {
-                w.execute()
-                    .enable()
-                    .read()
-                    .enable()
-                    .write()
-                    .enable()
-                    .secattr()
-                    .non_secure()
-            });
-        } else {
-            region.perm.write(|w| {
-                w.execute()
-                    .enable()
-                    .read()
-                    .enable()
-                    .write()
-                    .enable()
-                    .secattr()
-                    .secure()
-            });
-        }
-    }
-
     cortex_m::asm::isb();
     cortex_m::asm::dsb();
+
+    unsafe { crate::initialize_ns_data(); }
+}
+
+fn set_nsc_region(spu: &SPU, region: core::ops::Range<u32>) {
+    let sg_start = region.start;
+    let nsc_size = FLASH_REGION_SIZE - (sg_start % FLASH_REGION_SIZE);
+    let size_reg = (31 - nsc_size.leading_zeros()) - 4;
+    let region_reg = (sg_start as u32 / FLASH_REGION_SIZE) & 0x3F; // x << SPU_FLASHNSC_REGION_REGION_Pos & SPU_FLASHNSC_REGION_REGION_Msk
+    spu.flashnsc[0].size.write(|w| {
+        unsafe {
+            w.bits(size_reg);
+        }
+        w
+    });
+    spu.flashnsc[0].region.write(|w| {
+        unsafe {
+            w.bits(region_reg);
+        }
+        w
+    });
 }
