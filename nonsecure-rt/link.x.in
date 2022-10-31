@@ -34,7 +34,7 @@ SECTIONS
     KEEP(*(.ns_veneers));
     . = . + 8; /* Add a vector at the end that should end up as 0's to indicate that we've reached the end */
     . = ALIGN(4); /* Pad .text to the alignment to workaround overlapping load section bug in old lld */
-  } > NS_FLASH
+  } > NS_FLASH = 0
 
   _stext = .;
 

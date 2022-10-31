@@ -1,6 +1,7 @@
 use std::{env, fs::File, io::Write, path::PathBuf};
 
-const LINKER_SCRIPTS: &[(&'static [u8], &'static str)] = &[(include_bytes!("link.x.in"), "link.x"), (include_bytes!("../trustzone_memory.x.in"), "trustzone_memory.x")];
+const LINKER_SCRIPTS: &[(&'static [u8], &'static str)] =
+    &[(include_bytes!("../trustzone_memory.x.in"), "trustzone_memory.x")];
 
 fn main() {
     let out = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
