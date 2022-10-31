@@ -1,0 +1,14 @@
+[package]
+name = "non-secure"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+cortex-m = "0.7"
+trustzone-m-nonsecure-rt = { path = "../../trustzone-m-tools/nonsecure-rt" }
+trustzone-m-macros = { path = "../../trustzone-m-tools/macros" }
+
+[build-dependencies]
+trustzone-m-tools = { path = "../../trustzone-m-tools/tools" }
