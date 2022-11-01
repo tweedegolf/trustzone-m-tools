@@ -9,8 +9,9 @@ edition = "2021"
 cortex-m-rt = "0.7"
 cortex-m = "0.7"
 rtt-target = { version = "0.3", features = ["cortex-m"] }
-trustzone-m-macros = { path = "../../trustzone-m-tools/macros" }
-trustzone-m-secure-rt = { path = "../../trustzone-m-tools/secure-rt", features = ["nrf9160"] }
+trustzone-m-macros = { path = "../../../trustzone-m-tools/macros" }
+trustzone-m-secure-rt = { path = "../../../trustzone-m-tools/secure-rt", features = ["nrf9160"] }
+nrf9160-pac = "0.12.2"
 
 [build-dependencies]
-trustzone-m-tools = { path = "../../trustzone-m-tools/tools" }
+trustzone-m-tools = { path = "../../../trustzone-m-tools/tools" }

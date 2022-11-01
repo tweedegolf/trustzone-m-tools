@@ -7,8 +7,10 @@ edition = "2021"
 
 [dependencies]
 cortex-m = "0.7"
-trustzone-m-nonsecure-rt = { path = "../../trustzone-m-tools/nonsecure-rt" }
-trustzone-m-macros = { path = "../../trustzone-m-tools/macros" }
+trustzone-m-nonsecure-rt = { path = "../../../trustzone-m-tools/nonsecure-rt" }
+trustzone-m-macros = { path = "../../../trustzone-m-tools/macros" }
+nrf9160-pac = "0.12.2"
+nrf9160-hal = { version = "0.16.0", default-features = false }
 
 [build-dependencies]
-trustzone-m-tools = { path = "../../trustzone-m-tools/tools" }
+trustzone-m-tools = { path = "../../../trustzone-m-tools/tools" }

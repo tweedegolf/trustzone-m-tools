@@ -1,5 +1,6 @@
 #![no_std]
 
+#[cfg(all(target_arch = "arm", target_os = "none"))]
 core::arch::global_asm! {
     ".global initialize_ns_data
      .thumb_func",

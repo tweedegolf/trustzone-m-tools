@@ -19,6 +19,8 @@ pub fn generate_bindings<P: AsRef<Path>>(
         secure: bool,
         generated_items: &mut Vec<(syn::Item, String, u32)>,
     ) -> Result<(), anyhow::Error> {
+        println!("cargo:rerun-if-changed={}", module_file_path.as_ref().display());
+
         // Read the source code file
         let file_text = std::fs::read_to_string(module_file_path.as_ref())?;
 
@@ -299,6 +301,7 @@ fn generate_file_bindings(
 
                 let function_name = signature.ident.to_string();
                 let function_hash = crate::hash_vector_name(&function_name);
+                let function_not_found_string = format!("Could not find the veneer of nonsecure '{}'", function_name);
 
                 generated_items.push((
                     syn::ItemFn {
@@ -314,7 +317,7 @@ fn generate_file_bindings(
                                 let fn_ptr = unsafe { super::find_ns_veneer(HASH) };
 
                                 if fn_ptr.is_null() {
-                                    panic!("Pointer is null");
+                                    panic!(#function_not_found_string);
                                 }
 
                                 // Don't forget to set the thumb bit
@@ -402,6 +405,7 @@ fn generate_file_bindings(
 
                 let function_name = signature.ident.to_string();
                 let function_hash = crate::hash_vector_name(&function_name);
+                let function_not_found_string = format!("Could not find the veneer of secure '{}'", function_name);
 
                 generated_items.push((syn::ItemFn {
                     attrs: vec![],
@@ -416,7 +420,7 @@ fn generate_file_bindings(
                             let fn_ptr = super::find_nsc_veneer(HASH);
 
                             if fn_ptr.is_null() {
-                                panic!("Pointer is null");
+                                panic!(#function_not_found_string);
                             }
 
                             // Don't forget to set the thumb bit
