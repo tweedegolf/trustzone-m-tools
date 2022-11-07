@@ -139,20 +139,6 @@ pub fn initialize<const PERIPHERALS_LEN: usize, const PINS_LEN: usize, const DPP
         }
     }
 
-    // We're using Nordic's SPU instead of the default SAU. To do that we must disable the SAU and
-    // set the ALLNS (All Non-secure) bit.
-    let sau = unsafe { core::mem::transmute::<_, cortex_m::peripheral::SAU>(()) };
-    unsafe {
-        sau.ctrl.modify(|mut ctrl| {
-            ctrl.0 &= !1;
-            ctrl.0 |= 1 << 1;
-            ctrl
-        });
-
-        // Also set the stack pointer of nonsecure
-        cortex_m::register::msp::write_ns(ns_ram_end);
-    }
-
     // Set all given peripherals to nonsecure
     for peripheral in nonsecure_peripherals {
         spu.periphid[peripheral.id]
@@ -172,6 +158,19 @@ pub fn initialize<const PERIPHERALS_LEN: usize, const PINS_LEN: usize, const DPP
         spu.dppi[port]
             .perm
             .modify(|r, w| unsafe { w.bits(r.bits() & !(1 << channel)) })
+    }
+
+    // We're using Nordic's SPU instead of the default SAU. To do that we must disable the SAU and
+    // set the ALLNS (All Non-secure) bit.
+    let sau = unsafe { core::mem::transmute::<_, cortex_m::peripheral::SAU>(()) };
+    unsafe {
+        sau.ctrl.modify(|mut ctrl| {
+            ctrl.0 = 0b10;
+            ctrl
+        });
+
+        // Also set the stack pointer of nonsecure
+        cortex_m::register::msp::write_ns(ns_ram_end);
     }
 
     cortex_m::asm::isb();
@@ -284,5 +283,5 @@ mod nrf9160_peripheral_impl {
     impl_ns_peripheral!(nrf9160_pac::FPU_S, 44);
     impl_ns_peripheral!((&nrf9160_pac::KMU_S, &nrf9160_pac::NVMC_S), 57);
     impl_ns_peripheral!(nrf9160_pac::VMC_S, 58);
-    impl_ns_peripheral!(&nrf9160_pac::P0_S, 58);
+    impl_ns_peripheral!(&nrf9160_pac::P0_S, 66);
 }

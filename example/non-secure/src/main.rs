@@ -2,7 +2,7 @@
 #![no_main]
 
 extern crate trustzone_m_nonsecure_rt;
-use nrf9160_hal::{gpio, Uarte, uarte};
+use nrf9160_hal::{gpio, Uarte, uarte, prelude::OutputPin};
 use nrf9160_pac::{P0_NS, UARTE0_NS};
 use trustzone_m_macros::secure_callable;
 
@@ -31,24 +31,25 @@ pub extern "C" fn blink_led_with_uart(data: [u8; 8]) {
     let p0 = gpio::p0::Parts::new(p0);
     let uarte0: UARTE0_NS = unsafe { core::mem::transmute(()) };
     
-    trustzone_bindings::return_5();
-
     let pins = uarte::Pins {
-        txd: p0.p0_02.into_push_pull_output(gpio::Level::High).degrade(),
-        rxd: p0.p0_03.into_floating_input().degrade(),
+        txd: p0.p0_01.into_push_pull_output(gpio::Level::High).degrade(),
+        rxd: p0.p0_00.into_floating_input().degrade(),
         cts: None,
         rts: None,
     };
     
-    trustzone_bindings::return_5();
-
-    let mut uarte = Uarte::new(uarte0, pins, uarte::Parity::EXCLUDED, uarte::Baudrate::BAUD1200);
+    let mut uarte = Uarte::new(uarte0, pins, uarte::Parity::EXCLUDED, uarte::Baudrate::BAUD115200);
     
-    trustzone_bindings::return_5();
-
     uarte.write(&data).unwrap();
 
-    trustzone_bindings::return_5();
+    let mut led = p0.p0_02.into_open_drain_output(gpio::OpenDrainConfig::Disconnect0Standard1, gpio::Level::High);
+
+    loop {
+        led.set_high().unwrap();
+        cortex_m::asm::delay(64_000_000 / 10);
+        led.set_low().unwrap();
+        cortex_m::asm::delay(64_000_000 / 10);
+    }
 }
 
 /// Called when our code panics.
