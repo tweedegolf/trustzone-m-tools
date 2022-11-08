@@ -16,9 +16,9 @@
 			"problemMatcher": [
 				"$rustc"
 			],
-			"args": ["--release"],
+			"args": ["--release", "-p", "secure"],
 			"group": "build",
-			"label": "rust: cargo build release"
+			"label": "rust: cargo build secure release"
 		}
 	]
 }

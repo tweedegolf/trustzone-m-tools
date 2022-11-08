@@ -7,13 +7,13 @@ edition = "2021"
 
 [dependencies]
 cortex-m-rt = "0.7"
-cortex-m = "0.7"
-rtt-target = { version = "0.3", features = ["cortex-m"] }
+cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
 trustzone-m-macros = { path = "../../../trustzone-m-tools/macros" }
 trustzone-m-secure-rt = { path = "../../../trustzone-m-tools/secure-rt", features = ["nrf9160"] }
 nrf9160-pac = "0.12.2"
-embassy-executor = { git = "https://github.com/embassy-rs/embassy.git", features = ["nightly"]}
-embassy-nrf = { git = "https://github.com/embassy-rs/embassy.git", features = ["nightly", "nrf9160-s", "gpiote"]}
+embassy-executor = { git = "https://github.com/embassy-rs/embassy.git", rev = "c53614f", features = ["nightly"] }
+embassy-nrf = { git = "https://github.com/embassy-rs/embassy.git", rev = "c53614f", features = ["nightly", "nrf9160-s", "unstable-pac", "unstable-traits"] }
+embassy-sync = "0.1.0"
 
 [build-dependencies]
 trustzone-m-tools = { path = "../../../trustzone-m-tools/tools" }

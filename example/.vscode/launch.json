@@ -24,7 +24,7 @@
                 ]
             },
             "device": "nrf9160",
-            "preLaunchTask": "rust: cargo build release",
+            "preLaunchTask": "rust: cargo build secure release",
             "svdFile": "./nrf9160.svd"
         }
     ]

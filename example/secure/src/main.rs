@@ -4,22 +4,44 @@
 #![feature(cmse_nonsecure_entry)]
 #![feature(type_alias_impl_trait)]
 
-use core::panic::PanicInfo;
+use core::{cell::RefCell, fmt::Write, panic::PanicInfo};
 use cortex_m_rt::exception;
 use embassy_executor::Spawner;
-use embassy_nrf::uarte::Config;
-use rtt_target::rprintln;
+use embassy_nrf::{
+    interrupt,
+    peripherals::UARTETWISPI2,
+    uarte::{Config, Uarte},
+};
+use embassy_sync::blocking_mutex::{raw::CriticalSectionRawMutex, Mutex};
 
 include!(concat!(env!("OUT_DIR"), "/trustzone_bindings.rs"));
 
+static UART_OUT: Mutex<CriticalSectionRawMutex, RefCell<Option<Uarte<'static, UARTETWISPI2>>>> =
+    Mutex::new(RefCell::new(None));
+
+struct Printer;
+impl Write for Printer {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        UART_OUT.lock(|uart| {
+            uart.borrow_mut()
+                .as_mut()
+                .unwrap()
+                .blocking_write(s.as_bytes())
+                .unwrap()
+        });
+        Ok(())
+    }
+}
+
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
+    let ep = embassy_nrf::init(Default::default());
     let dp = unsafe { nrf9160_pac::Peripherals::steal() };
 
-    let ep = embassy_nrf::init(Default::default());
-
-    let irq = embassy_nrf::interrupt::take!(UARTE2_SPIM2_SPIS2_TWIM2_TWIS2);
-    let uart = embassy_nrf::uarte::Uarte::new(ep.UARTETWISPI2, irq, ep.P0_28, ep.P0_29, Config::default());
+    let irq = interrupt::take!(UARTE2_SPIM2_SPIS2_TWIM2_TWIS2);
+    let uart =
+        embassy_nrf::uarte::Uarte::new(ep.UARTETWISPI2, irq, ep.P0_28, ep.P0_31, Config::default());
+    UART_OUT.lock(|uarte| uarte.replace(Some(uart)));
 
     unsafe {
         (*cortex_m::peripheral::SCB::PTR)
@@ -27,10 +49,8 @@ async fn main(_spawner: Spawner) -> ! {
             .write((1 << 19) | (1 << 18) | (1 << 17) | (1 << 16))
     };
 
-    rtt_target::rtt_init_print!(BlockIfFull, 32);
+    writeln!(Printer, "\nInit").unwrap();
 
-    rprintln!("\nInit");
-    uart.blocking_write(b"\nInit").unwrap();
     trustzone_m_secure_rt::initialize(
         [
             (dp.SPIM0_S, dp.SPIS0_S, dp.TWIM0_S, dp.TWIS0_S, dp.UARTE0_S).into(),
@@ -68,7 +88,7 @@ async fn main(_spawner: Spawner) -> ! {
             // (0, 28),
             // (0, 29),
             (0, 30),
-            (0, 31),
+            // (0, 31),
         ],
         [
             (0, 0),
@@ -90,56 +110,54 @@ async fn main(_spawner: Spawner) -> ! {
         ],
     );
 
-    rprintln!("Done");
+    writeln!(Printer, "Done").unwrap();
 
-    rprintln!(
+    writeln!(Printer, 
         "Read call private: {}",
         trustzone_bindings::read_private_thing()
-    );
-    rprintln!(
+    ).unwrap();
+    writeln!(Printer, 
         "Read call other public: {}",
         trustzone_bindings::read_public_thing()
-    );
-    rprintln!("Read call: {}", trustzone_bindings::read_thing());
+    ).unwrap();
+    writeln!(Printer, "Read call: {}", trustzone_bindings::read_thing()).unwrap();
 
-    rprintln!("Calling 'write_thing' with 5");
+    writeln!(Printer, "Calling 'write_thing' with 5").unwrap();
     trustzone_bindings::write_thing(5);
-    rprintln!("Read call: {}", trustzone_bindings::read_thing());
-    rprintln!("Calling 'write_thing' with 10");
+    writeln!(Printer, "Read call: {}", trustzone_bindings::read_thing()).unwrap();
+    writeln!(Printer, "Calling 'write_thing' with 10").unwrap();
     trustzone_bindings::write_thing(10);
-    rprintln!("Read call: {}", trustzone_bindings::read_thing());
+    writeln!(Printer, "Read call: {}", trustzone_bindings::read_thing()).unwrap();
 
-    trustzone_bindings::blink_led_with_uart([b'A', b'B', b'C', b'A', b'A', b'A', b'A', b'\n']);
 
     loop {
-        cortex_m::asm::bkpt();
+        trustzone_bindings::blink_led_with_uart([0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF]);
     }
 }
 
 #[trustzone_m_macros::nonsecure_callable]
 pub extern "C" fn return_5() -> u32 {
-    rprintln!("In return_5");
+    writeln!(Printer, "In return_5").unwrap();
     5
 }
 
 #[trustzone_m_macros::nonsecure_callable]
 pub extern "C" fn double(x: u32) -> u32 {
-    rprintln!("In double");
+    writeln!(Printer, "In double").unwrap();
     x * 2
 }
 
 #[exception]
 unsafe fn HardFault(frame: &cortex_m_rt::ExceptionFrame) -> ! {
-    rprintln!("{:?}", frame);
+    writeln!(Printer, "{:?}", frame).unwrap();
     let sau = &*cortex_m::peripheral::SAU::PTR;
-    rprintln!("Secure ctrl: {:X}", sau.ctrl.read().0);
-    rprintln!("Secure fault status register: {:X}", sau.sfsr.read().0);
-    rprintln!("Secure fault address register: {:X}", sau.sfar.read().0);
+    writeln!(Printer, "Secure ctrl: {:X}", sau.ctrl.read().0).unwrap();
+    writeln!(Printer, "Secure fault status register: {:X}", sau.sfsr.read().0).unwrap();
+    writeln!(Printer, "Secure fault address register: {:X}", sau.sfar.read().0).unwrap();
 
     let scb = &*cortex_m::peripheral::SCB::PTR;
-    rprintln!("Configurable Fault Status Register: {:X}", scb.cfsr.read());
+    writeln!(Printer, "Configurable Fault Status Register: {:X}", scb.cfsr.read()).unwrap();
 
-    cortex_m::asm::bkpt();
     cortex_m::asm::delay(u32::MAX);
 
     cortex_m::peripheral::SCB::sys_reset();
@@ -147,18 +165,17 @@ unsafe fn HardFault(frame: &cortex_m_rt::ExceptionFrame) -> ! {
 
 #[exception]
 unsafe fn DefaultHandler(irq: i16) -> ! {
-    rprintln!("Default handler: {}", irq);
+    writeln!(Printer, "Default handler: {}", irq).unwrap();
 
     let sau = &*cortex_m::peripheral::SAU::PTR;
-    rprintln!("Secure ctrl: {:X}", sau.ctrl.read().0);
-    rprintln!("Secure fault status register: {:X}", sau.sfsr.read().0);
-    rprintln!("Secure fault address register: {:X}", sau.sfar.read().0);
+    writeln!(Printer, "Secure ctrl: {:X}", sau.ctrl.read().0).unwrap();
+    writeln!(Printer, "Secure fault status register: {:X}", sau.sfsr.read().0).unwrap();
+    writeln!(Printer, "Secure fault address register: {:X}", sau.sfar.read().0).unwrap();
 
     let scb = &*cortex_m::peripheral::SCB::PTR;
-    rprintln!("Configurable Fault Status Register: {:X}", scb.cfsr.read());
-    rprintln!("Bus Fault Address Register: {:X}", scb.bfar.read());
+    writeln!(Printer, "Configurable Fault Status Register: {:X}", scb.cfsr.read()).unwrap();
+    writeln!(Printer, "Bus Fault Address Register: {:X}", scb.bfar.read()).unwrap();
 
-    cortex_m::asm::bkpt();
     cortex_m::asm::delay(u32::MAX);
 
     cortex_m::peripheral::SCB::sys_reset();
@@ -168,6 +185,7 @@ unsafe fn DefaultHandler(irq: i16) -> ! {
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     cortex_m::interrupt::disable();
-    rprintln!("{}", info);
+    writeln!(Printer, "{}", info).unwrap();
+
     cortex_m::asm::udf();
 }

@@ -32,29 +32,19 @@ pub extern "C" fn blink_led_with_uart(data: [u8; 8]) {
     let uarte0: UARTE0_NS = unsafe { core::mem::transmute(()) };
     
     let pins = uarte::Pins {
-        txd: p0.p0_01.into_push_pull_output(gpio::Level::High).degrade(),
+        txd: p0.p0_02.into_push_pull_output(gpio::Level::High).degrade(),
         rxd: p0.p0_00.into_floating_input().degrade(),
         cts: None,
         rts: None,
     };
     
-    let mut uarte = Uarte::new(uarte0, pins, uarte::Parity::EXCLUDED, uarte::Baudrate::BAUD115200);
+    let mut uarte = Uarte::new(uarte0, pins, uarte::Parity::EXCLUDED, uarte::Baudrate::BAUD1200);
     
     uarte.write(&data).unwrap();
-
-    let mut led = p0.p0_02.into_open_drain_output(gpio::OpenDrainConfig::Disconnect0Standard1, gpio::Level::High);
-
-    loop {
-        led.set_high().unwrap();
-        cortex_m::asm::delay(64_000_000 / 10);
-        led.set_low().unwrap();
-        cortex_m::asm::delay(64_000_000 / 10);
-    }
 }
 
 /// Called when our code panics.
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
-    cortex_m::asm::bkpt();
     cortex_m::asm::udf();
 }
