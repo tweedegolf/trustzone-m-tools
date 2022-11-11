@@ -11,7 +11,7 @@ nrf9160-pac = { version = "0.12.2", optional = true }
 nrf5340-app-pac = { version = "0.12.2", optional = true }
 
 [features]
-default = ["memory_region_assertions", "nrf9160"]
+default = ["memory_region_assertions"]
 memory_region_assertions = []
 
 generic = []
