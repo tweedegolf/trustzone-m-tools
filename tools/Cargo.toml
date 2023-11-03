@@ -7,11 +7,11 @@ edition = "2021"
 
 [dependencies]
 proc-macro2 = "1.0.43"
-syn = { version = "1.0.99", features = ["full"] }
+syn = { version = "2.0.38", features = ["full"] }
 quote = { version = "1.0.21"}
 anyhow = { version = "1.0" }
-prettyplease = { version = "0.1.19" }
-crc = "3.0.0"
+prettyplease = { version = "0.2.15" }
+crc = "3.0.1"
 
 
 [dev-dependencies]

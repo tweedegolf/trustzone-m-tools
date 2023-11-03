@@ -19,7 +19,10 @@ pub fn generate_bindings<P: AsRef<Path>>(
         secure: bool,
         generated_items: &mut Vec<(syn::Item, String, u32)>,
     ) -> Result<(), anyhow::Error> {
-        println!("cargo:rerun-if-changed={}", module_file_path.as_ref().display());
+        println!(
+            "cargo:rerun-if-changed={}",
+            module_file_path.as_ref().display()
+        );
 
         // Read the source code file
         let file_text = std::fs::read_to_string(module_file_path.as_ref())?;
@@ -110,10 +113,8 @@ pub fn generate_bindings<P: AsRef<Path>>(
         attrs: Vec::new(),
         items: vec![syn::ItemMod {
             attrs: Vec::new(),
-            vis: syn::VisPublic {
-                pub_token: Default::default(),
-            }
-            .into(),
+            vis: syn::Visibility::Public(Default::default()),
+            unsafety: None,
             mod_token: Default::default(),
             ident: syn::Ident::new("trustzone_bindings", Span::call_site()),
             content: Some((
@@ -295,21 +296,24 @@ fn generate_file_bindings(
                             ty: *pat_type.ty.clone(),
                         })
                         .collect(),
-                    variadic: signature.variadic.clone(),
+                    variadic: signature.variadic.as_ref().map(|v| syn::BareVariadic {
+                        attrs: v.attrs.clone(),
+                        name: None,
+                        dots: v.dots,
+                        comma: v.comma,
+                    }),
                     output: signature.output.clone(),
                 };
 
                 let function_name = signature.ident.to_string();
                 let function_hash = crate::hash_vector_name(&function_name);
-                let function_not_found_string = format!("Could not find the veneer of nonsecure '{}'", function_name);
+                let function_not_found_string =
+                    format!("Could not find the veneer of nonsecure '{}'", function_name);
 
                 generated_items.push((
                     syn::ItemFn {
                         attrs: vec![],
-                        vis: syn::VisPublic {
-                            pub_token: Default::default(),
-                        }
-                        .into(),
+                        vis: syn::Visibility::Public(Default::default()),
                         sig: signature.clone(),
                         block: Box::new(syn::parse_quote! {
                             {
@@ -399,20 +403,23 @@ fn generate_file_bindings(
                             ty: *pat_type.ty.clone(),
                         })
                         .collect(),
-                    variadic: signature.variadic.clone(),
+                    variadic: signature.variadic.as_ref().map(|v| syn::BareVariadic {
+                        attrs: v.attrs.clone(),
+                        name: None,
+                        dots: v.dots,
+                        comma: v.comma,
+                    }),
                     output: signature.output.clone(),
                 };
 
                 let function_name = signature.ident.to_string();
                 let function_hash = crate::hash_vector_name(&function_name);
-                let function_not_found_string = format!("Could not find the veneer of secure '{}'", function_name);
+                let function_not_found_string =
+                    format!("Could not find the veneer of secure '{}'", function_name);
 
                 generated_items.push((syn::ItemFn {
                     attrs: vec![],
-                    vis: syn::VisPublic {
-                        pub_token: Default::default(),
-                    }
-                    .into(),
+                    vis: syn::Visibility::Public(Default::default()),
                     sig: signature.clone(),
                     block: Box::new(syn::parse_quote! {
                         {
@@ -506,7 +513,7 @@ impl TrustzoneExportedItem {
                     syn::Item::Impl(implementation) => {
                         for impl_item in implementation.items.iter() {
                             match impl_item {
-                                syn::ImplItem::Method(method) => {
+                                syn::ImplItem::Fn(method) => {
                                     if contains_secure_callable_attr(&method.attrs) {
                                         exported_items.push(
                                             TrustzoneExportedItem::SecureCallableFunction {
@@ -553,13 +560,13 @@ impl TrustzoneExportedItem {
 fn contains_secure_callable_attr(attrs: &[Attribute]) -> bool {
     attrs
         .iter()
-        .any(|attr| attr.path.segments.last().unwrap().ident.to_string() == "secure_callable")
+        .any(|attr| attr.path().segments.last().unwrap().ident.to_string() == "secure_callable")
 }
 
 fn contains_nonsecure_callable_attr(attrs: &[Attribute]) -> bool {
     attrs
         .iter()
-        .any(|attr| attr.path.segments.last().unwrap().ident.to_string() == "nonsecure_callable")
+        .any(|attr| attr.path().segments.last().unwrap().ident.to_string() == "nonsecure_callable")
 }
 
 const FIND_NS_VECTOR_FUNCTION: &'static str = "
