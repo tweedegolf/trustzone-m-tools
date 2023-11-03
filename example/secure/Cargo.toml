@@ -11,9 +11,13 @@ cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
 trustzone-m-macros = { path = "../../../trustzone-m-tools/macros" }
 trustzone-m-secure-rt = { path = "../../../trustzone-m-tools/secure-rt", features = ["nrf9160"] }
 nrf9160-pac = "0.12.2"
-embassy-executor = { git = "https://github.com/embassy-rs/embassy.git", rev = "c53614f", features = ["nightly"] }
-embassy-nrf = { git = "https://github.com/embassy-rs/embassy.git", rev = "c53614f", features = ["nightly", "nrf9160-s", "unstable-pac", "unstable-traits"] }
-embassy-sync = "0.1.0"
+embassy-executor = { git = "https://github.com/embassy-rs/embassy.git", rev = "14ec0d2", features = ["arch-cortex-m", "executor-thread", "nightly", "integrated-timers"] }
+embassy-nrf = { git = "https://github.com/embassy-rs/embassy.git", rev = "14ec0d2", features = ["nightly", "nrf9160-s", "time-driver-rtc1", "unstable-pac", "unstable-traits", "time", "gpiote"] }
+embassy-sync = "0.4.0"
 
 [build-dependencies]
 trustzone-m-tools = { path = "../../../trustzone-m-tools/tools" }
+
+[profile.release]
+debug = true
+lto = true

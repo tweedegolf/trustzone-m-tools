@@ -14,3 +14,7 @@ nrf9160-hal = { version = "0.16.0", default-features = false }
 
 [build-dependencies]
 trustzone-m-tools = { path = "../../../trustzone-m-tools/tools" }
+
+[profile.release]
+debug = true
+lto = true

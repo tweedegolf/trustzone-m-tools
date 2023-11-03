@@ -8,15 +8,14 @@ use core::{cell::RefCell, fmt::Write, panic::PanicInfo};
 use cortex_m_rt::exception;
 use embassy_executor::Spawner;
 use embassy_nrf::{
-    interrupt,
-    peripherals::UARTETWISPI2,
-    uarte::{Config, Uarte},
+    peripherals::SERIAL2,
+    uarte::{Config, Uarte}, bind_interrupts,
 };
 use embassy_sync::blocking_mutex::{raw::CriticalSectionRawMutex, Mutex};
 
 include!(concat!(env!("OUT_DIR"), "/trustzone_bindings.rs"));
 
-static UART_OUT: Mutex<CriticalSectionRawMutex, RefCell<Option<Uarte<'static, UARTETWISPI2>>>> =
+static UART_OUT: Mutex<CriticalSectionRawMutex, RefCell<Option<Uarte<'static, SERIAL2>>>> =
     Mutex::new(RefCell::new(None));
 
 struct Printer;
@@ -33,21 +32,24 @@ impl Write for Printer {
     }
 }
 
+bind_interrupts!(struct Irqs {
+    UARTE2_SPIM2_SPIS2_TWIM2_TWIS2 => embassy_nrf::uarte::InterruptHandler<SERIAL2>;
+});
+
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
     let ep = embassy_nrf::init(Default::default());
     let dp = unsafe { nrf9160_pac::Peripherals::steal() };
 
-    let irq = interrupt::take!(UARTE2_SPIM2_SPIS2_TWIM2_TWIS2);
     let uart =
-        embassy_nrf::uarte::Uarte::new(ep.UARTETWISPI2, irq, ep.P0_28, ep.P0_31, Config::default());
+        embassy_nrf::uarte::Uarte::new(ep.SERIAL2, Irqs, ep.P0_28, ep.P0_29, Config::default());
     UART_OUT.lock(|uarte| uarte.replace(Some(uart)));
 
-    unsafe {
-        (*cortex_m::peripheral::SCB::PTR)
-            .shcsr
-            .write((1 << 19) | (1 << 18) | (1 << 17) | (1 << 16))
-    };
+    // unsafe {
+    //     (*cortex_m::peripheral::SCB::PTR)
+    //         .shcsr
+    //         .write((1 << 19) | (1 << 18) | (1 << 17) | (1 << 16))
+    // };
 
     writeln!(Printer, "\nInit").unwrap();
 
@@ -88,7 +90,7 @@ async fn main(_spawner: Spawner) -> ! {
             // (0, 28),
             // (0, 29),
             (0, 30),
-            // (0, 31),
+            (0, 31),
         ],
         [
             (0, 0),

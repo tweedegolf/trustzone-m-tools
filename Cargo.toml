@@ -1,8 +1,11 @@
 [workspace]
-
+resolver = "2"
 members = [
     "macros",
     "nonsecure-rt",
     "secure-rt",
     "tools",
+]
+exclude = [
+    "example"
 ]
